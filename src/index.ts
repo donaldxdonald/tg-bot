@@ -1,37 +1,19 @@
-import { Bot, webhookCallback } from 'grammy'
-import type { UserFromGetMe } from 'grammy/types'
-import { Hono } from 'hono'
-import { Bindings } from 'hono/types'
-
-interface CustomBindings extends Bindings {
-  BOT_TOKEN: string
-}
-
-let botInfo: UserFromGetMe | undefined
+import { webhookCallback } from 'grammy'
+import { Handler, Hono } from 'hono'
+import { TgBot } from './middlewares/bot'
+import { askGemini } from './middlewares/handlers/ai'
+import { CustomBindings } from './types/env'
 
 const app = new Hono<{Bindings: CustomBindings}>()
 
-app.use('/', async c => {
+app.use(TgBot)
+
+const handlers: Handler[] = [askGemini]
+
+app.all(...handlers, async c => {
   try {
-    const { BOT_TOKEN: botToken } = c.env
-    if (!botToken) {
-      throw new Error('No Bot token')
-    }
-
-    const bot = new Bot(botToken, { botInfo })
-
-    if (!botInfo) {
-      bot.init().then(() => {
-        botInfo = bot.botInfo
-      })
-    }
-
-    bot.on('message:text', ctx => {
-      ctx.reply('Hello, World!')
-    })
-
-    const cb = webhookCallback(bot, 'hono')
-    return await cb(c)
+    const cb = webhookCallback(c.get('tgBot'), 'hono')
+    return cb(c)
   } catch (error: any) {
     return c.newResponse(error.message)
   }
