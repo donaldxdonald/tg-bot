@@ -5,10 +5,12 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
+    "strictNullChecks": true,
     "lib": [
       "ESNext"
     ],
     "types": [
+      "@types/node",
       "@cloudflare/workers-types"
     ],
     "jsx": "react-jsx",
@@ -16,6 +18,6 @@
   },
   "include": [
     "src/**/*.ts",
-    ".eslintrc.js",
+    "*.config.*"
   ]
 }

@@ -1,7 +1,7 @@
-import { Bot, BotConfig } from "grammy"
-import { MiddlewareHandler } from "hono"
-import { BotContext } from "../types/bot"
-import { HonoEnv } from "../types/env"
+import { Bot, BotConfig } from 'grammy'
+import { MiddlewareHandler } from 'hono'
+import { BotContext } from '../types/bot'
+import { HonoEnv } from '../types/env'
 
 let botInfo: Bot['botInfo'] | undefined
 

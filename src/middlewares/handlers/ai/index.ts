@@ -1,22 +1,20 @@
-import { GenerativeModel, HarmBlockThreshold, HarmCategory, Part } from "@google/generative-ai"
-import { MiddlewareHandler } from "hono"
+import { Buffer } from 'node:buffer'
+import { GenerativeModel, HarmBlockThreshold, HarmCategory, Part } from '@google/generative-ai'
+import { MiddlewareHandler } from 'hono'
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import escape from 'telegramify-markdown'
-import { BotContext } from "../../../types/bot"
-import { HonoEnv } from "../../../types/env"
+import telegramify from 'telegramify-markdown'
+import { BotContext } from '../../../types/bot'
+import { HonoEnv } from '../../../types/env'
 
-export const askGemini: MiddlewareHandler<HonoEnv> = async(c, next) => {
+const escape = (content: string) => telegramify(content, 'escape')
+
+export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
   const { GEMINI_KEY } = c.env
   if (!GEMINI_KEY) {
     throw new Error('Gemini key is required')
   }
-  const visionModel = new GenerativeModel(GEMINI_KEY, {
-    model: 'gemini-pro-vision',
-  })
-  const textModel = new GenerativeModel(GEMINI_KEY, {
-    model: 'gemini-pro',
+  const gemini = new GenerativeModel(GEMINI_KEY, {
+    model: 'gemini-1.5-flash',
     generationConfig: {
       maxOutputTokens: 2048,
       temperature: 0.7,
@@ -34,6 +32,7 @@ export const askGemini: MiddlewareHandler<HonoEnv> = async(c, next) => {
       },
     ],
   })
+
   const bot = c.get('tgBot')
 
   bot.command('start', async ctx => {
@@ -66,7 +65,7 @@ export const askGemini: MiddlewareHandler<HonoEnv> = async(c, next) => {
         if (!mentionEntity && ctx.chat.type !== 'private') {
           return
         }
-        const photoBase64s = await Promise.all(photoIds.map(async v => {
+        const photoBase64s = await Promise.all(photoIds.map(async() => {
           const file = await ctx.getFile()
           const res = await fetch(defaultBuildFileUrl(bot.token, file.file_path!), {
             method: 'GET',
@@ -87,7 +86,7 @@ export const askGemini: MiddlewareHandler<HonoEnv> = async(c, next) => {
       },
     )
 
-  async function hanleMessage<C extends BotContext>(text: string, ctx: C, extra: {imgBase64Arr?: string[]} = {}) {
+  async function hanleMessage<C extends BotContext>(text: string, ctx: C, extra: { imgBase64Arr?: string[] } = {}) {
     const { imgBase64Arr } = extra
     const msg = await ctx.reply('Processing...', {
       parse_mode: 'Markdown',
@@ -106,7 +105,7 @@ export const askGemini: MiddlewareHandler<HonoEnv> = async(c, next) => {
     }
     try {
       if (extraImgParts.length) {
-        const res = await visionModel.generateContent([text, ...extraImgParts])
+        const res = await gemini.generateContent([text, ...extraImgParts])
         const resText = res.response.text()
 
         await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(resText), {
@@ -115,7 +114,7 @@ export const askGemini: MiddlewareHandler<HonoEnv> = async(c, next) => {
         return
       }
 
-      const res = await textModel.generateContentStream(text)
+      const res = await gemini.generateContentStream(text)
       let resText = ''
       for await (const chunk of res.stream) {
         resText += chunk.text()
