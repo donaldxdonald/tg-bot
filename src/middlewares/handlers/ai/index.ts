@@ -5,15 +5,16 @@ import { MiddlewareHandler } from 'hono'
 import telegramify from 'telegramify-markdown'
 import { BotContext } from '../../../types/bot'
 import { HonoEnv } from '../../../types/env'
+import { getStreamSequence } from '../../../utils/stream'
 
 const escape = (content: string) => telegramify(content, 'escape')
 
 export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
-  const { GEMINI_KEY } = c.env
+  const { GEMINI_KEY, AI } = c.env
   if (!GEMINI_KEY) {
     throw new Error('Gemini key is required')
   }
-  const gemini = new GenerativeModel(GEMINI_KEY, {
+  const gemini = new GenerativeModel(GEMINI_KEY!, {
     model: 'gemini-1.5-flash',
     generationConfig: {
       maxOutputTokens: 2048,
@@ -32,6 +33,21 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       },
     ],
   })
+
+  const chatWithText = (content: string) => {
+    return AI.run(
+      '@cf/meta/llama-3.1-8b-instruct',
+      {
+        messages: [
+          {
+            role: 'user',
+            content,
+          },
+        ],
+        stream: true,
+      },
+    ) as Promise<ReadableStream<Uint8Array>>
+  }
 
   const bot = c.get('tgBot')
 
@@ -103,28 +119,33 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
         }
       })
     }
+    let resText = ''
     try {
       if (extraImgParts.length) {
         const res = await gemini.generateContent([text, ...extraImgParts])
-        const resText = res.response.text()
 
-        await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(resText), {
+        await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(res.response.text()), {
           parse_mode: 'MarkdownV2',
         })
         return
       }
 
-      const res = await gemini.generateContentStream(text)
-      let resText = ''
-      for await (const chunk of res.stream) {
-        resText += chunk.text()
-        await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(resText), {
+      const stream = await chatWithText(text)
+      for await (const chunk of getStreamSequence<{ response: string }>(stream)) {
+        const oldText = escape(resText)
+        if (!chunk.response) continue
+        resText += chunk.response
+        const escaped = escape(resText)
+        if (escaped === oldText) {
+          continue
+        }
+        await ctx.api.editMessageText(msg.chat.id, msg.message_id, escaped, {
           parse_mode: 'MarkdownV2',
         })
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error)
-      await ctx.api.editMessageText(msg.chat.id, msg.message_id, '获取内容失败', {
+      await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(resText + ` | ${error.message}`), {
         parse_mode: 'MarkdownV2',
         reply_markup: {
           inline_keyboard: [],
