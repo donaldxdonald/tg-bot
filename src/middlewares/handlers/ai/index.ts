@@ -5,17 +5,16 @@ import { MiddlewareHandler } from 'hono'
 import telegramify from 'telegramify-markdown'
 import { BotContext } from '../../../types/bot'
 import { HonoEnv } from '../../../types/env'
-import { getStreamSequence } from '../../../utils/stream'
 
 const escape = (content: string) => telegramify(content, 'escape')
 
 export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
-  const { GEMINI_KEY, AI } = c.env
+  const { GEMINI_KEY } = c.env
   if (!GEMINI_KEY) {
     throw new Error('Gemini key is required')
   }
-  const gemini = new GenerativeModel(GEMINI_KEY!, {
-    model: 'gemini-1.5-flash',
+  const geminiFlash = new GenerativeModel(GEMINI_KEY!, {
+    model: 'gemini-2.0-flash',
     generationConfig: {
       maxOutputTokens: 2048,
       temperature: 0.7,
@@ -34,20 +33,20 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     ],
   })
 
-  const chatWithText = (content: string) => {
-    return AI.run(
-      '@cf/meta/llama-3.1-8b-instruct',
-      {
-        messages: [
-          {
-            role: 'user',
-            content,
-          },
-        ],
-        stream: true,
-      },
-    ) as Promise<ReadableStream<Uint8Array>>
-  }
+  // const chatWithText = (content: string) => {
+  //   return AI.run(
+  //     '@cf/meta/llama-3.1-8b-instruct',
+  //     {
+  //       messages: [
+  //         {
+  //           role: 'user',
+  //           content,
+  //         },
+  //       ],
+  //       stream: true,
+  //     },
+  //   ) as Promise<ReadableStream<Uint8Array>>
+  // }
 
   const bot = c.get('tgBot')
 
@@ -122,7 +121,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     let resText = ''
     try {
       if (extraImgParts.length) {
-        const res = await gemini.generateContent([text, ...extraImgParts])
+        const res = await geminiFlash.generateContent([text, ...extraImgParts])
 
         await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(res.response.text()), {
           parse_mode: 'MarkdownV2',
@@ -130,11 +129,12 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
         return
       }
 
-      const stream = await chatWithText(text)
-      for await (const chunk of getStreamSequence<{ response: string }>(stream)) {
+      const res = await geminiFlash.generateContentStream(text)
+      for await (const chunk of res.stream) {
         const oldText = escape(resText)
-        if (!chunk.response) continue
-        resText += chunk.response
+        const chunkText = chunk.text()
+        if (!chunkText) continue
+        resText += chunkText
         const escaped = escape(resText)
         if (escaped === oldText) {
           continue
