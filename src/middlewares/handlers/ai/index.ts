@@ -1,8 +1,10 @@
 import { Buffer } from 'node:buffer'
-import { GenerativeModel, HarmBlockThreshold, HarmCategory, Part } from '@google/generative-ai'
 import { MiddlewareHandler } from 'hono'
-
 import telegramify from 'telegramify-markdown'
+import { UserMessagePart, StreamTextOptions } from 'xsai'
+import { generateText } from '@xsai/generate-text'
+import { createGoogleGenerativeAI } from 'xsai/providers'
+import { MessageEntity } from 'grammy/types'
 import { BotContext } from '../../../types/bot'
 import { HonoEnv } from '../../../types/env'
 
@@ -13,40 +15,17 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
   if (!GEMINI_KEY) {
     throw new Error('Gemini key is required')
   }
-  const geminiFlash = new GenerativeModel(GEMINI_KEY!, {
-    model: 'gemini-2.0-flash',
-    generationConfig: {
-      maxOutputTokens: 2048,
-      temperature: 0.7,
-    },
-    safetySettings: [
-      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-      {
-        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-      },
-      {
-        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-      },
-    ],
+
+  const gemini = createGoogleGenerativeAI({
+    apiKey: GEMINI_KEY,
   })
 
-  // const chatWithText = (content: string) => {
-  //   return AI.run(
-  //     '@cf/meta/llama-3.1-8b-instruct',
-  //     {
-  //       messages: [
-  //         {
-  //           role: 'user',
-  //           content,
-  //         },
-  //       ],
-  //       stream: true,
-  //     },
-  //   ) as Promise<ReadableStream<Uint8Array>>
-  // }
+  const chat = (messages: StreamTextOptions['messages']) => {
+    return generateText({
+      ...gemini.chat('gemini-2.0-flash'),
+      messages,
+    })
+  }
 
   const bot = c.get('tgBot')
 
@@ -57,7 +36,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
   bot.on(
     ['msg:text', '::mention'],
     async ctx => {
-      const entity = ctx.message?.entities?.find(v => v.type === 'mention')
+      const entity = ctx.message?.entities?.find(v => v.type === 'mention') as MessageEntity.TextMentionMessageEntity | undefined
       const msgText = ctx.message?.text || ''
       if (!entity) {
         ctx.chat.type === 'private' && await hanleMessage(msgText, ctx)
@@ -107,42 +86,59 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       parse_mode: 'Markdown',
       reply_to_message_id: ctx.message!.message_id,
     })
-    let extraImgParts: Part[] = []
+    const imageMessageParts: UserMessagePart[] = []
     if (imgBase64Arr && imgBase64Arr.length) {
-      extraImgParts = imgBase64Arr.map(v => {
-        return {
-          inlineData: {
-            data: v,
-            mimeType: 'image/png',
+      imgBase64Arr.forEach(v => {
+        imageMessageParts.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:image/png;base64,${v}`,
           },
-        }
+        })
       })
     }
     let resText = ''
     try {
-      if (extraImgParts.length) {
-        const res = await geminiFlash.generateContent([text, ...extraImgParts])
+      if (imageMessageParts.length) {
+        const res = await chat([
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text,
+              },
+              ...imageMessageParts,
+            ],
+          },
+        ])
 
-        await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(res.response.text()), {
+        res.text && await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(res.text), {
           parse_mode: 'MarkdownV2',
         })
         return
       }
 
-      const res = await geminiFlash.generateContentStream(text)
-      for await (const chunk of res.stream) {
-        const oldText = escape(resText)
-        const chunkText = chunk.text()
-        if (!chunkText) continue
-        resText += chunkText
-        const escaped = escape(resText)
-        if (escaped === oldText) {
-          continue
-        }
-        await ctx.api.editMessageText(msg.chat.id, msg.message_id, escaped, {
+      const res = await chat([
+        {
+          role: 'user',
+          content: text,
+        },
+      ])
+
+      const chunkText = res.text
+      if (!chunkText) {
+        await ctx.api.editMessageText(msg.chat.id, msg.message_id, '【问题】：没有返回内容', {
           parse_mode: 'MarkdownV2',
         })
+        return
       }
+      resText = chunkText
+      const escaped = escape(resText)
+
+      await ctx.api.editMessageText(msg.chat.id, msg.message_id, escaped, {
+        parse_mode: 'MarkdownV2',
+      })
     } catch (error: any) {
       console.error(error)
       await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(resText + ` | ${error.message}`), {
