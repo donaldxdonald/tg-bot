@@ -9,7 +9,7 @@
     "grammy": "^1.35.0",
     "hono": "^4.7.1",
     "telegramify-markdown": "^1.2.2",
-    "xsai": "^0.1.0-beta.3"
+    "xsai": "^0.1.0-beta.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250204.0",
