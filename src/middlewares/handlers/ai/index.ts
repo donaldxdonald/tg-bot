@@ -1,8 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { MiddlewareHandler } from 'hono'
 import telegramify from 'telegramify-markdown'
-import { UserMessagePart, StreamTextOptions } from 'xsai'
-import { generateText } from '@xsai/generate-text'
+import { UserMessagePart, generateText, type Message } from 'xsai'
 import { createGoogleGenerativeAI } from 'xsai/providers'
 import { MessageEntity } from 'grammy/types'
 import { BotContext } from '../../../types/bot'
@@ -20,7 +19,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     apiKey: GEMINI_KEY,
   })
 
-  const chat = (messages: StreamTextOptions['messages']) => {
+  const chat = (messages: Message[]) => {
     return generateText({
       ...gemini.chat('gemini-2.0-flash'),
       messages,

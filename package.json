@@ -6,13 +6,10 @@
     "deploy": "wrangler deploy --minify src/index.ts"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "@xsai/generate-text": "0.1.0-beta.2",
-    "eventsource-parser": "^2.0.1",
     "grammy": "^1.35.0",
     "hono": "^4.7.1",
     "telegramify-markdown": "^1.2.2",
-    "xsai": "0.1.0-beta.2"
+    "xsai": "^0.1.0-beta.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250204.0",
