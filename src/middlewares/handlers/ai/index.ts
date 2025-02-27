@@ -2,10 +2,10 @@ import { Buffer } from 'node:buffer'
 import { MiddlewareHandler } from 'hono'
 import telegramify from 'telegramify-markdown'
 import { UserMessagePart, generateText, type Message } from 'xsai'
-import { createGoogleGenerativeAI } from 'xsai/providers'
-import { MessageEntity } from 'grammy/types'
+import { createGoogleGenerativeAI } from '@xsai/providers'
 import { BotContext } from '../../../types/bot'
 import { HonoEnv } from '../../../types/env'
+import type { Context } from 'grammy'
 
 const escape = (content: string) => telegramify(content, 'escape')
 
@@ -32,52 +32,23 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     await ctx.reply('Hello!')
   })
 
-  bot.on(
-    ['msg:text', '::mention'],
-    async ctx => {
-      const entity = ctx.message?.entities?.find(v => v.type === 'mention') as MessageEntity.TextMentionMessageEntity | undefined
-      const msgText = ctx.message?.text || ''
-      if (!entity) {
-        ctx.chat.type === 'private' && await hanleMessage(msgText, ctx)
-        return
-      }
-      if (!msgText) return
-      const mentionText = msgText.slice(entity.offset, entity.offset + entity.length)
-      const text = msgText.replace(new RegExp(mentionText, 'g'), '')
-      await hanleMessage(text, ctx)
-    })
+  bot.command('ask', async ctx => {
+    const msgText = ctx.match
+    await handleChats(ctx, msgText)
+  })
 
-  bot
-    .on('message:caption')
-    .on(
-      'message:photo',
-      async ctx => {
-        const photoIds = ctx.message.photo
-        let text = ctx.message.caption
-        const mentionEntity = ctx.message.entities?.find(v => v.type === 'mention')
-        if (!mentionEntity && ctx.chat.type !== 'private') {
-          return
-        }
-        const photoBase64s = await Promise.all(photoIds.map(async() => {
-          const file = await ctx.getFile()
-          const res = await fetch(defaultBuildFileUrl(bot.token, file.file_path!), {
-            method: 'GET',
-            headers: {
-              'content-type': 'image/png',
-            },
-          })
-          const r = await res.arrayBuffer()
-          return Buffer.from(r).toString('base64')
-        }))
-        if (mentionEntity) {
-          const mentionText = ctx.message.caption.slice(mentionEntity.offset, mentionEntity.offset + mentionEntity.length)
-          text = ctx.message.caption.replace(new RegExp(mentionText, 'g'), '')
-        }
-        await hanleMessage(text, ctx, {
-          imgBase64Arr: photoBase64s,
-        })
-      },
-    )
+  bot.on(
+    ['msg:text', 'msg:caption', 'msg:photo'],
+    async ctx => {
+      const text = ctx.message?.caption || ctx.message?.text || ''
+      let prompt = text
+      const hasCommand = text.startsWith('/ask')
+      if (hasCommand) {
+        prompt = text.replace('/ask ', '')
+      }
+      if (ctx.chat.type !== 'private' && !hasCommand) return
+      await handleChats(ctx, prompt)
+    })
 
   async function hanleMessage<C extends BotContext>(text: string, ctx: C, extra: { imgBase64Arr?: string[] } = {}) {
     const { imgBase64Arr } = extra
@@ -149,9 +120,30 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     }
   }
 
+  async function handleChats<T extends Context>(ctx: T, msgText = ctx.message?.text || '') {
+    const photoIds = ctx.message?.photo || []
+    const text = ctx.message?.caption
+
+    const photoBase64s = await Promise.all(photoIds.map(async() => {
+      const file = await ctx.getFile()
+      const res = await fetch(defaultBuildFileUrl(bot.token, file.file_path!), {
+        method: 'GET',
+        headers: {
+          'content-type': 'image/png',
+        },
+      })
+      const r = await res.arrayBuffer()
+      return Buffer.from(r).toString('base64')
+    }))
+    const prompt = text || msgText
+    if (!prompt) return
+    await hanleMessage(prompt, ctx, {
+      imgBase64Arr: photoBase64s,
+    })
+  }
+
   await next()
 }
-
 const defaultBuildFileUrl = (
   token: string,
   filePath: string,
