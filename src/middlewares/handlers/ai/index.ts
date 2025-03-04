@@ -121,25 +121,30 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
   }
 
   async function handleChats<T extends Context>(ctx: T, msgText = ctx.message?.text || '') {
-    const photoIds = ctx.message?.photo || []
-    const text = ctx.message?.caption
+    try {
+      const photoIds = ctx.message?.photo || []
+      const text = ctx.message?.caption
 
-    const photoBase64s = await Promise.all(photoIds.map(async() => {
-      const file = await ctx.getFile()
-      const res = await fetch(defaultBuildFileUrl(bot.token, file.file_path!), {
-        method: 'GET',
-        headers: {
-          'content-type': 'image/png',
-        },
+      const photoBase64s = await Promise.all(photoIds.map(async() => {
+        const file = await ctx.getFile()
+        const res = await fetch(defaultBuildFileUrl(bot.token, file.file_path!), {
+          method: 'GET',
+          headers: {
+            'content-type': 'image/png',
+          },
+        })
+        const r = await res.arrayBuffer()
+        return Buffer.from(r).toString('base64')
+      }))
+      const prompt = text || msgText
+      if (!prompt) return
+      await hanleMessage(prompt, ctx, {
+        imgBase64Arr: photoBase64s,
       })
-      const r = await res.arrayBuffer()
-      return Buffer.from(r).toString('base64')
-    }))
-    const prompt = text || msgText
-    if (!prompt) return
-    await hanleMessage(prompt, ctx, {
-      imgBase64Arr: photoBase64s,
-    })
+    } catch (error: any) {
+      const errMsg = error.message
+      await ctx.reply(`【出错】：${errMsg || '未知错误'}`)
+    }
   }
 
   await next()
