@@ -13,6 +13,7 @@ declare module 'hono' {
 export interface CustomBindings extends Bindings {
   BOT_TOKEN: string
   GEMINI_KEY?: string
+  XAI_KEY?: string
   AI: Ai
 }
 

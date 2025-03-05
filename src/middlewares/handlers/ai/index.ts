@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { MiddlewareHandler } from 'hono'
 import telegramify from 'telegramify-markdown'
 import { UserMessagePart, generateText, type Message } from 'xsai'
-import { createGoogleGenerativeAI } from '@xsai/providers'
+import { createGoogleGenerativeAI } from '@xsai-ext/providers-cloud'
 import { BotContext } from '../../../types/bot'
 import { HonoEnv } from '../../../types/env'
 import type { Context } from 'grammy'
@@ -15,9 +15,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     throw new Error('Gemini key is required')
   }
 
-  const gemini = createGoogleGenerativeAI({
-    apiKey: GEMINI_KEY,
-  })
+  const gemini = createGoogleGenerativeAI(GEMINI_KEY)
 
   const chat = (messages: Message[]) => {
     return generateText({
