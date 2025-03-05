@@ -8,6 +8,7 @@ import { HonoEnv } from '../../../types/env'
 import type { Context } from 'grammy'
 
 const escape = (content: string) => telegramify(content, 'escape')
+const askCommandRegex = /^\/ask /
 
 export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
   const { GEMINI_KEY } = c.env
@@ -42,7 +43,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       let prompt = text
       const hasCommand = text.startsWith('/ask')
       if (hasCommand) {
-        prompt = text.replace('/ask ', '')
+        prompt = text.replace(askCommandRegex, '')
       }
       if (ctx.chat.type !== 'private' && !hasCommand) return
       await handleChats(ctx, prompt)
@@ -67,8 +68,10 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     }
     let resText = ''
     try {
+      const historyMessages = getHistoryMessagesFromCtx(ctx)
       if (imageMessageParts.length) {
         const res = await chat([
+          ...historyMessages,
           {
             role: 'user',
             content: [
@@ -88,9 +91,15 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       }
 
       const res = await chat([
+        ...historyMessages,
         {
           role: 'user',
-          content: text,
+          content: [
+            {
+              type: 'text',
+              text,
+            },
+          ],
         },
       ])
 
@@ -147,6 +156,28 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
 
   await next()
 }
+
+function getHistoryMessagesFromCtx<T extends Context>(ctx: T): Message[] {
+  let msg = ctx.message?.reply_to_message
+  const result: Message[] = []
+  if (!msg) return []
+
+  while (msg) {
+    result.unshift({
+      role: msg.from?.is_bot ? 'assistant' : 'user',
+      content: [
+        {
+          type: 'text',
+          text: (msg.text || '').replace(askCommandRegex, ''),
+        },
+      ],
+    })
+    msg = msg.reply_to_message
+  }
+
+  return result
+}
+
 const defaultBuildFileUrl = (
   token: string,
   filePath: string,
