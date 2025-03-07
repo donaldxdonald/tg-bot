@@ -5,10 +5,15 @@ import { UserMessagePart, generateText, type Message } from 'xsai'
 import { createGoogleGenerativeAI } from '@xsai-ext/providers-cloud'
 import { BotContext } from '../../../types/bot'
 import { HonoEnv } from '../../../types/env'
+import { getPolishSystemPrompt } from '../../../llm/prompts'
 import type { Context } from 'grammy'
 
 const escape = (content: string) => telegramify(content, 'escape')
-const askCommandRegex = /^\/ask /
+const commandRegex = /^\/([a-z]+) /i
+
+type HandleChatOptions = {
+  preMessages?: Message[]
+}
 
 export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
   const { GEMINI_KEY } = c.env
@@ -27,30 +32,59 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
 
   const bot = c.get('tgBot')
 
-  bot.command('start', async ctx => {
-    await ctx.reply('Hello!')
-  })
+  await bot.api.setMyCommands([
+    {
+      command: 'ask',
+      description: 'Ask Me Anything~',
+    },
+    {
+      command: 'polish',
+      description: 'Polish your writing',
+    },
+  ])
 
   bot.command('ask', async ctx => {
     const msgText = ctx.match
     await handleChats(ctx, msgText)
   })
 
+  bot.command('polish', async ctx => {
+    await handlePolish(ctx)
+  })
+
+  async function handlePolish<T extends Context>(ctx: T) {
+    const text = ctx.message?.text || ''
+    const commandInfo = tryMatchCommand(text)
+    const msgText = (commandInfo && commandInfo.text) || text
+    await handleChats(ctx, msgText, {
+      preMessages: [
+        {
+          role: 'system',
+          content: getPolishSystemPrompt(),
+        },
+      ],
+    })
+  }
+
   bot.on(
     ['msg:text', 'msg:caption', 'msg:photo'],
     async ctx => {
       const text = ctx.message?.caption || ctx.message?.text || ''
       let prompt = text
-      const hasCommand = text.startsWith('/ask')
-      if (hasCommand) {
-        prompt = text.replace(askCommandRegex, '')
+      const commandInfo = tryMatchCommand(text)
+      if (ctx.chat.type !== 'private' && !commandInfo) return
+      if (commandInfo) {
+        if (commandInfo.command === 'polish') {
+          await handlePolish(ctx)
+          return
+        }
+        prompt = commandInfo.text
       }
-      if (ctx.chat.type !== 'private' && !hasCommand) return
       await handleChats(ctx, prompt)
     })
 
-  async function hanleMessage<C extends BotContext>(text: string, ctx: C, extra: { imgBase64Arr?: string[] } = {}) {
-    const { imgBase64Arr } = extra
+  async function hanleMessage<C extends BotContext>(text: string, ctx: C, extra: HandleChatOptions & { imgBase64Arr?: string[] } = {}) {
+    const { imgBase64Arr, preMessages = [] } = extra
     const msg = await ctx.reply('Processing...', {
       parse_mode: 'Markdown',
       reply_to_message_id: ctx.message!.message_id,
@@ -71,6 +105,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       const historyMessages = getHistoryMessagesFromCtx(ctx)
       if (imageMessageParts.length) {
         const res = await chat([
+          ...preMessages,
           ...historyMessages,
           {
             role: 'user',
@@ -91,6 +126,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       }
 
       const res = await chat([
+        ...preMessages,
         ...historyMessages,
         {
           role: 'user',
@@ -127,8 +163,11 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     }
   }
 
-  async function handleChats<T extends Context>(ctx: T, msgText = ctx.message?.text || '') {
+  async function handleChats<T extends Context>(ctx: T, msgText = ctx.message?.text || '', options: HandleChatOptions = {}) {
     try {
+      const {
+        preMessages = [],
+      } = options
       const photoIds = ctx.message?.photo || []
       const text = ctx.message?.caption
 
@@ -147,6 +186,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       if (!prompt) return
       await hanleMessage(prompt, ctx, {
         imgBase64Arr: photoBase64s,
+        preMessages,
       })
     } catch (error: any) {
       const errMsg = error.message
@@ -163,12 +203,14 @@ function getHistoryMessagesFromCtx<T extends Context>(ctx: T): Message[] {
   if (!msg) return []
 
   while (msg) {
+    const commandInfo = tryMatchCommand(msg.text || '')
+    const text = (commandInfo && commandInfo.text) || msg.text || ''
     result.unshift({
       role: msg.from?.is_bot ? 'assistant' : 'user',
       content: [
         {
           type: 'text',
-          text: (msg.text || '').replace(askCommandRegex, ''),
+          text,
         },
       ],
     })
@@ -184,4 +226,13 @@ const defaultBuildFileUrl = (
   root = 'https://api.telegram.org',
 ) => {
   return `${root}/file/bot${token}/${filePath}`
+}
+
+function tryMatchCommand(text: string) {
+  const match = text.match(commandRegex)
+  if (!match) return false
+  return {
+    command: match[1],
+    text: text.replace(commandRegex, ''),
+  }
 }
