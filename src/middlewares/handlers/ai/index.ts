@@ -83,27 +83,16 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       await handleChats(ctx, prompt)
     })
 
-  async function hanleMessage<C extends BotContext>(text: string, ctx: C, extra: HandleChatOptions & { imgBase64Arr?: string[] } = {}) {
-    const { imgBase64Arr, preMessages = [] } = extra
+  async function hanleMessage<C extends BotContext>(text: string, ctx: C, extra: HandleChatOptions & { extraMessageParts?: UserMessagePart[] } = {}) {
+    const { extraMessageParts = [], preMessages = [] } = extra
     const msg = await ctx.reply('Processing...', {
       parse_mode: 'Markdown',
       reply_to_message_id: ctx.message!.message_id,
     })
-    const imageMessageParts: UserMessagePart[] = []
-    if (imgBase64Arr && imgBase64Arr.length) {
-      imgBase64Arr.forEach(v => {
-        imageMessageParts.push({
-          type: 'image_url',
-          image_url: {
-            url: `data:image/png;base64,${v}`,
-          },
-        })
-      })
-    }
     let resText = ''
     try {
       const historyMessages = getHistoryMessagesFromCtx(ctx)
-      if (imageMessageParts.length) {
+      if (extraMessageParts.length) {
         const res = await chat([
           ...preMessages,
           ...historyMessages,
@@ -114,7 +103,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
                 type: 'text',
                 text,
               },
-              ...imageMessageParts,
+              ...extraMessageParts,
             ],
           },
         ])
@@ -169,23 +158,56 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
         preMessages = [],
       } = options
       const photoIds = ctx.message?.photo || []
+      const audioFile = ctx.message?.audio
       const text = ctx.message?.caption
 
-      const photoBase64s = await Promise.all(photoIds.map(async() => {
+      let photoBase64s: string[] = []
+      let audioBase64 = ''
+      const extraMessageParts: UserMessagePart[] = []
+      if (photoIds.length) {
+        photoBase64s = await Promise.all(photoIds.map(async() => {
+          const file = await ctx.getFile()
+          const res = await fetch(defaultBuildFileUrl(bot.token, file.file_path!), {
+            method: 'GET',
+            headers: {
+              'content-type': 'image/png',
+            },
+          })
+          const r = await res.arrayBuffer()
+          return Buffer.from(r).toString('base64')
+        }))
+        photoBase64s.forEach(v => {
+          extraMessageParts.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:image/png;base64,${v}`,
+            },
+          })
+        })
+      }
+      if (audioFile) {
         const file = await ctx.getFile()
         const res = await fetch(defaultBuildFileUrl(bot.token, file.file_path!), {
           method: 'GET',
           headers: {
-            'content-type': 'image/png',
+            'content-type': audioFile.mime_type || 'audio/mpeg',
           },
         })
         const r = await res.arrayBuffer()
-        return Buffer.from(r).toString('base64')
-      }))
+        audioBase64 = Buffer.from(r).toString('base64')
+        extraMessageParts.push({
+          type: 'input_audio',
+          input_audio: {
+            format: 'mp3',
+            data: audioBase64,
+          },
+        })
+      }
+
       const prompt = text || msgText
       if (!prompt) return
       await hanleMessage(prompt, ctx, {
-        imgBase64Arr: photoBase64s,
+        extraMessageParts,
         preMessages,
       })
     } catch (error: any) {
