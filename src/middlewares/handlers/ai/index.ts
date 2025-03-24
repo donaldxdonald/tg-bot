@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { MiddlewareHandler } from 'hono'
-import telegramify from 'telegramify-markdown'
+import telegramify from 'telegramify-markdown-es'
 import { UserMessagePart, generateText, type Message } from 'xsai'
 import { createGoogleGenerativeAI } from '@xsai-ext/providers-cloud'
 import { BotContext } from '../../../types/bot'
@@ -147,11 +147,8 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       })
     } catch (error: any) {
       console.error(error)
-      await ctx.api.editMessageText(msg.chat.id, msg.message_id, escape(resText + ` | ${error.message}`), {
-        parse_mode: 'MarkdownV2',
-        reply_markup: {
-          inline_keyboard: [],
-        },
+      throw new Error('原文：' + resText, {
+        cause: error,
       })
     }
   }
@@ -214,8 +211,9 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
         extraMessageParts,
         preMessages,
       })
-    } catch (error: any) {
-      const errMsg = error.message
+    } catch (e: any) {
+      const error = e as Error
+      const errMsg = ((error.cause as any)?.message || '') + '\n' + error.message
       await ctx.reply(`【出错】：${errMsg || '未知错误'}`)
     }
   }
