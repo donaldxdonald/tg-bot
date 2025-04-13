@@ -6,7 +6,6 @@ import { createGoogleGenerativeAI } from '@xsai-ext/providers-cloud'
 import { BotContext } from '../../../types/bot'
 import { HonoEnv } from '../../../types/env'
 import { getPolishSystemPrompt } from '../../../llm/prompts'
-import { weatherTool } from '../../../llm/tools/weather'
 import type { Context } from 'grammy'
 
 const escape = (content: string) => telegramify(content, 'escape')
@@ -28,9 +27,6 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     return generateText({
       ...gemini.chat('gemini-2.0-flash'),
       messages,
-      tools: [
-        weatherTool,
-      ],
     })
   }
 
