@@ -25,7 +25,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
 
   const chat = (messages: Message[]) => {
     return generateText({
-      ...gemini.chat('gemini-2.0-flash'),
+      ...gemini.chat('gemini-2.5-flash'),
       messages,
     })
   }
