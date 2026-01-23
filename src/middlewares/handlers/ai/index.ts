@@ -27,6 +27,8 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
     return generateText({
       ...ai.chat('gemini-3-flash-preview'),
       messages,
+      temperature: 0.2,
+      reasoningEffort: 'minimal',
     })
   }
 
@@ -45,7 +47,14 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
 
   bot.command('ask', async ctx => {
     const msgText = ctx.match
-    await handleChats(ctx, msgText)
+    await handleChats(ctx, msgText, {
+      preMessages: [
+        {
+          role: 'system',
+          content: 'Provide a brief response that fits entirely in one message bubble.',
+        },
+      ],
+    })
   })
 
   bot.command('polish', async ctx => {
@@ -141,7 +150,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
       await ctx.api.editMessageText(msg.chat.id, msg.message_id, escaped, {
         parse_mode: 'MarkdownV2',
       })
-    } catch (error: any) {
+    } catch(error: any) {
       console.error(error)
       throw new Error('原文：' + resText, {
         cause: error,
@@ -207,7 +216,7 @@ export const askAI: MiddlewareHandler<HonoEnv> = async(c, next) => {
         extraMessageParts,
         preMessages,
       })
-    } catch (e: any) {
+    } catch(e: any) {
       const error = e as Error
       const errMsg = ((error.cause as any)?.message || '') + '\n' + error.message
       await ctx.reply(`【出错】：${errMsg || '未知错误'}`)
